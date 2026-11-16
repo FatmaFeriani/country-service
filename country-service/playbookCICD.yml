@@ -4,7 +4,7 @@
   connection: local
 
   vars_files:
-    - vault.yml          
+    - vault.yml
 
   vars:
     image_name: my-country-service
@@ -53,3 +53,44 @@
         namespace: jenkins
         src: service.yaml
         kubeconfig: config
+
+   
+    - name: Wait until the application Deployment is available
+      kubernetes.core.k8s_info:
+        kind: Deployment
+        name: my-country-service
+        namespace: jenkins
+        kubeconfig: config
+        wait: true
+        wait_condition:
+          type: Available
+          status: "True"
+        wait_timeout: 180
+
+    - name: Add the prometheus-community Helm repository
+      kubernetes.core.helm_repository:
+        name: prometheus-community
+        repo_url: https://prometheus-community.github.io/helm-charts
+
+    - name: Install kube-state-metrics with Helm
+      kubernetes.core.helm:
+        name: kube-state-metrics
+        chart_ref: prometheus-community/kube-state-metrics
+        release_namespace: monitoring
+        create_namespace: true
+        kubeconfig: config
+        update_repo_cache: true
+        wait: true
+        values:
+          service:
+            type: NodePort
+            nodePort: 30080
+
+    - name: Check that kube-state-metrics exposes its metrics
+      ansible.builtin.uri:
+        url: http://localhost:30080/metrics
+        status_code: 200
+      register: ksm_metrics
+      retries: 5
+      delay: 5
+      until: ksm_metrics.status == 200
